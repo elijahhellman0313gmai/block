@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Block Blast</title>
+<style>
+  body, html {
+    margin: 0; padding: 0; background: #222; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; user-select: none;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #eee;
+  }
+  h1 {
+    margin: 12px 0 4px;
+  }
+  #score {
+    font-size: 20px;
+    margin-bottom: 12px;
+  }
+  #game {
+    position: relative;
+    touch-action: manipulation;
+  }
+  canvas {
+    background: #111;
+    border-radius: 12px;
+    box-shadow: 0 0 20px #00ffff88;
+    display: block;
+  }
+  #message {
+    margin-top: 12px;
+    font-size: 18px;
+  }
+  button {
+    margin-top: 12px;
+    padding: 10px 18px;
+    font-size: 16px;
+    border: none;
+    border-radius: 14px;
+    background: #00cccc;
+    color: #111;
+    font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+  }
+  button:hover {
+    background: #00ffff;
+  }
+</style>
+</head>
+<body>
+
+<h1>Block Blast</h1>
+<div id="score">Score: 0</div>
+<div id="game">
+  <canvas id="canvas" width="320" height="400"></canvas>
+</div>
+<div id="message"></div>
+<button id="restartBtn" style="display:none;">Restart Game</button>
+
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  const ROWS = 10;
+  const COLS = 8;
+  const BLOCK_SIZE = 40;
+  const COLORS = ['#FF4C4C','#4CAF50','#2196F3','#FFC107','#9C27B0'];
+  const EMPTY = null;
+
+  let grid = [];
+  let score = 0;
+  let animating = false;
+
+  // Initialize grid with random blocks
+  function initGrid(){
+    grid = [];
+    for(let r=0; r<ROWS; r++){
+      let row = [];
+      for(let c=0; c<COLS; c++){
+        row.push(randomColor());
+      }
+      grid.push(row);
+    }
+  }
+  function randomColor(){
+    return COLORS[Math.floor(Math.random()*COLORS.length)];
+  }
+
+  // Draw grid
+  function drawGrid(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    for(let r=0; r<ROWS; r++){
+      for(let c=0; c<COLS; c++){
+        let color = grid[r][c];
+        if(color){
+          drawBlock(c,r,color);
+        }
+      }
+    }
+  }
+
+  function drawBlock(c,r,color){
+    const x = c*BLOCK_SIZE;
+    const y = r*BLOCK_SIZE;
+    // Block base
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 8;
+    ctx.fillRect(x+2,y+2,BLOCK_SIZE-4,BLOCK_SIZE-4);
+    // Highlight
+    ctx.strokeStyle = '#fff8';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x+2,y+2,BLOCK_SIZE-4,BLOCK_SIZE-4);
+  }
+
+  // Convert canvas coords to grid coords
+  function getGridPos(x,y){
+    const c = Math.floor(x / BLOCK_SIZE);
+    const r = Math.floor(y / BLOCK_SIZE);
+    if(c >= 0 && c < COLS && r >= 0 && r < ROWS) return {r,c};
+    return null;
+  }
+
+  // Find connected blocks of same color
+  function floodFill(r,c,color,visited){
+    let stack = [{r,c}];
+    let group = [];
+    while(stack.length){
+      let {r,c} = stack.pop();
+      if(r<0||r>=ROWS||c<0||c>=COLS) continue;
+      if(visited[r][c]) continue;
+      if(grid[r][c] !== color) continue;
+      visited[r][c] = true;
+      group.push({r,c});
+      stack.push({r:r+1,c});
+      stack.push({r:r-1,c});
+      stack.push({r,c:c+1});
+      stack.push({r,c:c-1});
+    }
+    return group;
+  }
+
+  // Remove blocks in group and collapse grid
+  function removeGroup(group){
+    if(group.length < 2) return false; // minimum 2 blocks to blast
+    animating = true;
+    // Remove blocks
+    for(let {r,c} of group){
+      grid[r][c] = EMPTY;
+    }
+    // Animate collapse after a short delay
+    setTimeout(() => {
+      collapseGrid();
+      animating = false;
+      drawGrid();
+      updateScore(group.length);
+      checkGameOver();
+    }, 150);
+    return true;
+  }
+
+  // Collapse grid: blocks fall down to fill empty spots
+  function collapseGrid(){
+    for(let c=0; c<COLS; c++){
+      let colBlocks = [];
+      for(let r=ROWS-1; r>=0; r--){
+        if(grid[r][c] !== EMPTY) colBlocks.push(grid[r][c]);
+      }
+      for(let r=ROWS-1; r>=0; r--){
+        grid[r][c] = colBlocks.shift() || randomColor();
+      }
+    }
+  }
+
+  // Update score
+  function updateScore(count){
+    score += count * (count - 1); // bigger groups score more
+    document.getElementById('score').textContent = `Score: ${score}`;
+  }
+
+  // Check if any moves left
+  function checkGameOver(){
+    for(let r=0; r<ROWS; r++){
+      for(let c=0; c<COLS; c++){
+        let color = grid[r][c];
+        if(!color) continue;
+        // check neighbors
+        const neighbors = [
+          {r:r+1,c}, {r:r-1,c}, {r,c:c+1}, {r,c:c-1}
+        ];
+        for(let n of neighbors){
+          if(n.r>=0 && n.r<ROWS && n.c>=0 && n.c<COLS){
+            if(grid[n.r][n.c] === color) return false; // move available
+          }
+        }
+      }
+    }
+    // No moves
+    document.getElementById('message').textContent = 'No moves left! Game Over.';
+    document.getElementById('restartBtn').style.display = 'inline-block';
+    return true;
+  }
+
+  // Handle clicks or taps
+  function onCanvasClick(e){
+    if(animating) return; // ignore input during animations
+    const rect = canvas.getBoundingClientRect();
+    let x, y;
+    if(e.touches) {
+      x = e.touches[0].clientX - rect.left;
+      y = e.touches[0].clientY - rect.top;
+    } else {
+      x = e.clientX - rect.left;
+      y = e.clientY - rect.top;
+    }
+    const pos = getGridPos(x,y);
+    if(!pos) return;
+    const color = grid[pos.r][pos.c];
+    if(!color) return;
+    const visited = Array.from({length: ROWS}, () => Array(COLS).fill(false));
+    const group = floodFill(pos.r, pos.c, color, visited);
+    if(removeGroup(group)) {
+      document.getElementById('message').textContent = '';
+    }
+  }
+
+  function restartGame(){
+    score = 0;
+    document.getElementById('score').textContent = `Score: ${score}`;
+    document.getElementById('message').textContent = '';
+    document.getElementById('restartBtn').style.display = 'none';
+    initGrid();
+    drawGrid();
+  }
+
+  // Init
+  initGrid();
+  drawGrid();
+
+  canvas.addEventListener('click', onCanvasClick);
+  canvas.addEventListener('touchstart', onCanvasClick);
+
+  document.getElementById('restartBtn').addEventListener('click', restartGame);
+})();
+</script>
+
+</body>
+</html>
